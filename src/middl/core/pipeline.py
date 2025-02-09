@@ -11,7 +11,7 @@ from typing import Any
 
 from .middleware import Middleware, ProcessingStep, StrMapping
 
-__all__ = ["Pipeline"]
+__all__ = ["AbortPipeline", "Pipeline", "SkipStep", "ValidationError", "empty_sink"]
 
 
 class SkipStep(Exception):  # noqa: N818
@@ -53,7 +53,6 @@ class Pipeline:
         middlewares: Sequence[Middleware],  # type: ignore[type-arg]
         sink: ProcessingStep,  # type: ignore[type-arg]
         step_name: str = "step",
-        validate_on_run: bool = True,
     ) -> None:
         """
         Initialize the pipeline.
@@ -67,12 +66,9 @@ class Pipeline:
             sink: The final callable that completes processing of the batch.
             step_name: The key used to record the current step index in the
                 state. (Default: "step")
-            validate_on_run: Whether to validate the required fields on the
-                first batch from the data loader. (Default: True)
 
         """
         self.middlewares = middlewares
-        self.validate_on_run = validate_on_run
         self.step_name = step_name
 
         self._run = sink
@@ -126,19 +122,55 @@ class Pipeline:
                     f" {mware.requires_data_fields_post.difference(data_fields_acc)},"
                     f" required by middleware {type(mware).__name__}, at index {ind}."
                 )
+                raise ValidationError(msg)
 
             data_fields_acc.update(mware.provides_data_fields_post)
 
-    def run(self, state: dict[str, Any], data_loader: Iterable[StrMapping]) -> None:
+    def run(
+        self,
+        state: dict[str, Any],
+        data_loader: Iterable[StrMapping],
+        validate: bool = True,
+    ) -> None:
         """
         Process batches from the data loader through the middleware chain.
 
-        The pipeline processes batches sequentially. On the first batch, if validation
-        is enabled, the pipeline checks that the state and the data contain all
-        required fields.
+        The pipeline processes batches sequentially. On the first batch, if
+        `validate=True`, the pipeline calls `validate` to checks that the state
+        and the data contain all required fields.
 
-        The batch is then passed through the middleware chain for processing. If a
-        middleware raises an AbortPipeline exception, processing stops immediately.
+        The batch is then passed through the middleware chain for processing. The data
+        passes through the middlewares sequentially, in the order in which they are
+        given in the list. Each middleware "passes" the control on to the next one by
+        calling `next_step` in its wrapped function. After the first pass is complete,
+        the sink function is ran.
+
+        Then, the flow passes backwards: from the last middleware to the first one, with
+        execution in each middleware continuing after the call to `next_step`.
+
+        Here is an illustration of this flow:
+
+        ```
+        (data, state)
+            ▼
+        ┌────────────────┐
+        │ Middleware 1   │
+        └────────────────┘
+            ▼          ▲
+        ┌────────────────┐
+        │       ...      │
+        └────────────────┘
+            ▼          ▲
+        ┌────────────────┐
+        │ Middleware N   │
+        └────────────────┘
+            ▼          ▲
+        ┌────────────────┐
+        │      Sink      │
+        └────────────────┘
+        ```
+
+        If a middleware raises an AbortPipeline exception, processing stops immediately.
         If a middleware raises a SkipStep exception, that batch is skipped and
         processing continues with the next batch.
 
@@ -148,11 +180,13 @@ class Pipeline:
         Args:
             state: A dictionary representing the shared pipeline state.
             data_loader: An iterable that yields batches of data (as dictionaries).
+            validate: Whether to validate the required fields on the first batch from
+                the data loader. (Default: True)
 
         """
         for step, data in enumerate(data_loader):
             state[self.step_name] = step
-            if step == 0 and self.validate_on_run:
+            if step == 0 and validate:
                 self.validate(set(state.keys()), set(data.keys()))
 
             try:
@@ -161,3 +195,8 @@ class Pipeline:
                 break
             except SkipStep:
                 continue
+
+
+def empty_sink(state: StrMapping, data: StrMapping) -> None:  # noqa: ARG001
+    """An empty processing step (sink)."""
+    return
