@@ -10,3 +10,10 @@ type-check:
     uv run mypy --strict .
 
 check: lint type-check
+
+test:
+    uv run pytest -v
+
+publish:
+    uv build
+    uv publish
