@@ -1,14 +1,32 @@
 [project]
-name = "middle"
+name = "middl"
 version = "0.1.0"
-description = "Add your description here"
+description = "Composable middleware components for creating machine learning pipelines"
 readme = "README.md"
-authors = [
-    { name = "Tadej Svetina", email = "tadej.svetina@gmail.com" }
-]
-requires-python = ">=3.12"
+authors = [{ name = "Tadej Svetina", email = "tadej.svetina@gmail.com" }]
+requires-python = ">=3.10"
 dependencies = []
 
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
+
+[dependency-groups]
+dev = ["mypy>=1.15.0", "pytest>=8.3.4", "ruff>=0.9.5"]
+
+[tool.ruff]
+line-length = 88
+
+[tool.ruff.lint]
+select = ["ALL"]
+ignore = [
+    "FBT001",
+    "FBT002",
+    "D200",
+    "D203",
+    "D205",
+    "D212",
+    "D213",
+    "COM812",
+    "ISC001",
+]
