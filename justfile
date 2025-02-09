@@ -13,3 +13,7 @@ check: lint type-check
 
 test:
     uv run pytest -v
+
+publish:
+    uv build
+    uv publish
