@@ -6,7 +6,7 @@ batches from a data loader are processed sequentially through a series of middle
 components, which receive a shared state and batch (data) as their input.
 """
 
-from collections.abc import Iterable, Sequence
+from collections.abc import Iterable, Sequence, Sized
 from typing import Any
 
 from .middleware import Middleware, ProcessingStep, StrMapping
@@ -197,7 +197,7 @@ class Pipeline:
         for mware in self.middlewares:
             mware.on_start(state)
 
-        if hasattr(data_loader, "__len__"):
+        if isinstance(data_loader, Sized):
             state[f"num_{self.step_name}s"] = len(data_loader)
 
         for step, data in enumerate(data_loader):
