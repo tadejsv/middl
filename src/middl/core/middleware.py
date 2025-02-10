@@ -19,11 +19,11 @@ DataType_contra = TypeVar("DataType_contra", bound=StrMapping, contravariant=Tru
 
 class ProcessingStep(Protocol[StateType_contra, DataType_contra]):
     """
-    Protocol for a processing step of the pipeline.
+    Protocol for a (callable) processing step of the pipeline.
 
-    It accepts a shared state and a data batch, both as dictionaries. Concrete
-    implementations should use concrete types for the state and data to
-    leverage static type checking.
+    Needs to be a callable that accepts a shared state and a data batch,
+    both as dictionaries (mappings) with string keys. Implementations should
+    use concrete types for the state and data to leverage static type checking.
     """
 
     def __call__(self, state: StateType_contra, data: DataType_contra) -> None:
@@ -62,8 +62,8 @@ class Middleware(ABC, Generic[StateType_contra, DataType_contra]):
             def __init__(self) -> None:
                 super().__init__()
                 self.requires_state_fields = {"step"}
+                self.requires_data_fields_post = {"loss"}
                 self.provides_data_fields_pre = {"value"}
-                self.provides_data_fields_post = {"loss"}
 
             def wrap(
                 self, next_step: ProcessingStep[StrMapping, StrMapping],

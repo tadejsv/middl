@@ -186,6 +186,8 @@ class Pipeline:
         """
         for step, data in enumerate(data_loader):
             state[self.step_name] = step
+            # Perform validation on first data batch, assuming that all future batches
+            # will also have the same set of keys
             if step == 0 and validate:
                 self.validate(set(state.keys()), set(data.keys()))
 
