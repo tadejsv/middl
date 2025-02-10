@@ -39,6 +39,11 @@ class Middleware(ABC, Generic[StateType_contra, DataType_contra]):
     as concrete TypedDict types) to benefit from IDE autocompletion and static type
     checking.
 
+    Concrete implementations need to override the `wrap` method. Optionally, they
+    can also override `on_start` and `on_finish` callbacks, in case there is some
+    initialization/teardown that needs to be done at the start and at the end of
+    pipeline execution.
+
     Attributes:
         requires_state_fields: The state fields required by this middleware.
         requires_data_fields_pre: The data fields required before processing.
@@ -128,3 +133,31 @@ class Middleware(ABC, Generic[StateType_contra, DataType_contra]):
 
         """
         raise NotImplementedError
+
+    def on_start(self, state: StateType_contra) -> None:
+        """
+        Callback invoked at the start of the pipeline execution.
+
+        This method is called once before any data is processed by the pipeline.
+        Middleware implementations can override this method to any tasks needed
+        before the processing begins - for example, a progress bar middleware
+        would create (display on screen) a progress bar at this point.
+
+        Args:
+            state: A mapping representing the shared state of the pipeline.
+
+        """
+
+    def on_finish(self, state: StateType_contra) -> None:
+        """
+        Callback invoked at the end of the pipeline execution.
+
+        This method is called once after all data batches have been processed or when
+        the pipeline terminates prematurely. Middleware implementations can override
+        this method to perform any necessary finalization tasks - for example, a
+        progress bar middleware would remove a progress bar at this point.
+
+        Args:
+            state: A mapping representing the shared state of the pipeline.
+
+        """

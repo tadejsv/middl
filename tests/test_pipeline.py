@@ -1,4 +1,5 @@
 from typing import Any
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -169,3 +170,28 @@ def test_abort_pipeline() -> None:
     pipeline.run(state=state, data_loader=data_loader)
 
     assert state["acc"] == [1]
+
+
+def test_middleware_callbacks() -> None:
+    def sink(state: Any, data: Any) -> None:
+        state["value"] = state["step"] + 1
+
+    mware = _SimpleMiddleware()
+
+    mware.on_start = MagicMock(wraps=mware.on_start)  # type: ignore[method-assign]
+    mware.on_finish = MagicMock(wraps=mware.on_finish)  # type: ignore[method-assign]
+
+    state: Any = {"hello": 1}
+    data_loader: Any = [{} for _ in range(3)]
+
+    pipeline = Pipeline(middlewares=[mware], sink=sink)
+    pipeline.run(state=state, data_loader=data_loader)
+
+    # This test is not exactly correct - because the state is mutable, and changes in
+    # the course of execution. so the final state will have "step" and "value" keys,
+    # which the initial state (that was passed to the on_start call) did not have.
+    # Nevertheless, as MagicMock simply stores the reference to the arguments passed
+    # in the call (and does not copy them), this check passes.
+    mware.on_start.assert_called_once_with(state)
+
+    mware.on_finish.assert_called_once_with(state)
