@@ -177,6 +177,14 @@ class Pipeline:
         On each step, the current step index is recorded in the state using the key
         specified by `step_name`.
 
+        Before the processing begins, the `on_start` hook of each middleware is
+        called, and after all processing finishes (also in the case of `AbortPipeline`
+        exception being raised), the `on_finish` hook of each middlewar is called. The
+        shared state is provided to each call. Both of these calls will call middlewares
+        in the order they are provided (unlike processing, where on the backwards pass
+        the order is reversed). Also, the `on_start` call will happen **before** any
+        validation takes place.
+
         Args:
             state: A dictionary representing the shared pipeline state.
             data_loader: An iterable that yields batches of data (as dictionaries).
@@ -184,6 +192,9 @@ class Pipeline:
                 the data loader. (Default: True)
 
         """
+        for mware in self.middlewares:
+            mware.on_start(state)
+
         for step, data in enumerate(data_loader):
             state[self.step_name] = step
             # Perform validation on first data batch, assuming that all future batches
@@ -197,6 +208,9 @@ class Pipeline:
                 break
             except SkipStep:
                 continue
+
+        for mware in self.middlewares:
+            mware.on_finish(state)
 
 
 def empty_sink(state: StrMapping, data: StrMapping) -> None:  # noqa: ARG001
