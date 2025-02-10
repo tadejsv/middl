@@ -142,6 +142,31 @@ def test_run_ok() -> None:
     assert state["acc"] == [1, 2, 3]
 
 
+def test_run_no_loader_length() -> None:
+    def sink(state: Any, data: Any) -> None:
+        assert set(state.keys()) == {"step"}
+
+    pipeline = Pipeline(middlewares=[], sink=sink)
+
+    data_loader: Any = ({} for _ in range(3))
+    state: Any = {}
+
+    pipeline.run(state, data_loader)
+
+
+def test_run_dataloader_length() -> None:
+    data_loader: Any = [{} for _ in range(3)]
+
+    def sink(state: Any, data: Any) -> None:
+        assert set(state.keys()) == {"epoch", "num_epochs"}
+        assert state["num_epochs"] == len(data_loader)
+
+    pipeline = Pipeline(middlewares=[], sink=sink, step_name="epoch")
+    state: Any = {}
+
+    pipeline.run(state, data_loader)
+
+
 def test_skip_step() -> None:
     def sink(state: Any, data: Any) -> None:
         state["value"] = state["step"] + 1
