@@ -175,7 +175,9 @@ class Pipeline:
         processing continues with the next batch.
 
         On each step, the current step index is recorded in the state using the key
-        specified by `step_name`.
+        specified by `step_name`. If data loader has a length, this is added to state
+        under the key `num_{step_name}s` - for example, if `step_name="step"`, this
+        would be `num_steps`.
 
         Before the processing begins, the `on_start` hook of each middleware is
         called, and after all processing finishes (also in the case of `AbortPipeline`
@@ -194,6 +196,9 @@ class Pipeline:
         """
         for mware in self.middlewares:
             mware.on_start(state)
+
+        if hasattr(data_loader, "__len__"):
+            state[f"num_{self.step_name}s"] = len(data_loader)
 
         for step, data in enumerate(data_loader):
             state[self.step_name] = step
