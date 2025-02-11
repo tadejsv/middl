@@ -10,7 +10,6 @@ from middl import (
     ProcessingStep,
     SkipStep,
     ValidationError,
-    empty_sink,
 )
 
 
@@ -35,7 +34,7 @@ def test_validate_missing_pre_field() -> None:
     sm = _SimpleMiddleware()
     sm.requires_data_fields_pre = {"miss"}
 
-    pipe = Pipeline(middlewares=[sm], sink=empty_sink)
+    pipe = Pipeline(middlewares=[sm])
 
     with pytest.raises(
         ValidationError,
@@ -49,7 +48,7 @@ def test_validate_missing_post_field() -> None:
     sm = _SimpleMiddleware()
     sm.requires_data_fields_post = {"miss"}
 
-    pipe = Pipeline(middlewares=[sm], sink=empty_sink)
+    pipe = Pipeline(middlewares=[sm])
 
     with pytest.raises(
         ValidationError,
@@ -63,7 +62,7 @@ def test_validate_missing_state_field() -> None:
     sm = _SimpleMiddleware()
     sm.requires_state_fields = {"miss"}
 
-    pipe = Pipeline(middlewares=[sm], sink=empty_sink)
+    pipe = Pipeline(middlewares=[sm])
 
     with pytest.raises(
         ValidationError,
@@ -83,7 +82,7 @@ def test_validate_ok() -> None:
     sm2.requires_data_fields_pre = {"val"}
     sm2.provides_data_fields_post = {"val1"}
 
-    pipe = Pipeline(middlewares=[sm1, sm2], sink=empty_sink)
+    pipe = Pipeline(middlewares=[sm1, sm2])
 
     pipe.validate({"miss"}, set())
 
@@ -92,7 +91,7 @@ def test_run_missing_state_field() -> None:
     sm = _SimpleMiddleware()
     sm.requires_state_fields = {"miss"}
 
-    pipe = Pipeline(middlewares=[sm], sink=empty_sink)
+    pipe = Pipeline(middlewares=[sm])
 
     with pytest.raises(
         ValidationError,
@@ -106,7 +105,7 @@ def test_run_missing_data_field() -> None:
     sm = _SimpleMiddleware()
     sm.requires_data_fields_pre = {"miss"}
 
-    pipe = Pipeline(middlewares=[sm], sink=empty_sink)
+    pipe = Pipeline(middlewares=[sm])
 
     with pytest.raises(
         ValidationError,
@@ -124,29 +123,37 @@ def test_run_missing_data_field_no_validate() -> None:
     sm = _SimpleMiddleware()
     sm.requires_data_fields_pre = {"miss"}
 
-    pipe = Pipeline(middlewares=[sm], sink=empty_sink)
+    pipe = Pipeline(middlewares=[sm])
 
     pipe.run({}, [{}, {}, {}], validate=False)
 
 
 def test_run_ok() -> None:
-    def sink(state: Any, data: Any) -> None:
-        state["value"] = state["step"] + 1
+    class _Middleware(Middleware[Any, Any]):
+        def wrap(self, next_step: ProcessingStep[Any, Any]) -> ProcessingStep[Any, Any]:
+            def wrapped(state: Any, data: Any) -> None:
+                state["value"] = state["step"] + 1
+
+            return wrapped
 
     data_loader: Any = [{} for _ in range(3)]
     state: Any = {"acc": []}
 
-    pipeline = Pipeline(middlewares=[AccMiddleware()], sink=sink)
+    pipeline = Pipeline(middlewares=[AccMiddleware(), _Middleware()])
     pipeline.run(state=state, data_loader=data_loader)
 
     assert state["acc"] == [1, 2, 3]
 
 
 def test_run_no_loader_length() -> None:
-    def sink(state: Any, data: Any) -> None:
-        assert set(state.keys()) == {"step"}
+    class _Middleware(Middleware[Any, Any]):
+        def wrap(self, next_step: ProcessingStep[Any, Any]) -> ProcessingStep[Any, Any]:
+            def wrapped(state: Any, data: Any) -> None:
+                assert set(state.keys()) == {"step"}
 
-    pipeline = Pipeline(middlewares=[], sink=sink)
+            return wrapped
+
+    pipeline = Pipeline(middlewares=[_Middleware()])
 
     data_loader: Any = ({} for _ in range(3))
     state: Any = {}
@@ -157,50 +164,59 @@ def test_run_no_loader_length() -> None:
 def test_run_dataloader_length() -> None:
     data_loader: Any = [{} for _ in range(3)]
 
-    def sink(state: Any, data: Any) -> None:
-        assert set(state.keys()) == {"epoch", "num_epochs"}
-        assert state["num_epochs"] == len(data_loader)
+    class _Middleware(Middleware[Any, Any]):
+        def wrap(self, next_step: ProcessingStep[Any, Any]) -> ProcessingStep[Any, Any]:
+            def wrapped(state: Any, data: Any) -> None:
+                assert set(state.keys()) == {"epoch", "num_epochs"}
+                assert state["num_epochs"] == len(data_loader)
 
-    pipeline = Pipeline(middlewares=[], sink=sink, step_name="epoch")
+            return wrapped
+
+    pipeline = Pipeline(middlewares=[_Middleware()], step_name="epoch")
     state: Any = {}
 
     pipeline.run(state, data_loader)
 
 
 def test_skip_step() -> None:
-    def sink(state: Any, data: Any) -> None:
-        state["value"] = state["step"] + 1
-        if state["step"] == 1:
-            raise SkipStep
+    class _Middleware(Middleware[Any, Any]):
+        def wrap(self, next_step: ProcessingStep[Any, Any]) -> ProcessingStep[Any, Any]:
+            def wrapped(state: Any, data: Any) -> None:
+                state["value"] = state["step"] + 1
+                if state["step"] == 1:
+                    raise SkipStep
+
+            return wrapped
 
     data_loader: Any = [{} for _ in range(3)]
     state: Any = {"acc": []}
 
-    pipeline = Pipeline(middlewares=[AccMiddleware()], sink=sink)
+    pipeline = Pipeline(middlewares=[AccMiddleware(), _Middleware()])
     pipeline.run(state=state, data_loader=data_loader)
 
     assert state["acc"] == [1, 3]
 
 
 def test_abort_pipeline() -> None:
-    def sink(state: Any, data: Any) -> None:
-        state["value"] = state["step"] + 1
-        if state["step"] == 1:
-            raise AbortPipeline
+    class _Middleware(Middleware[Any, Any]):
+        def wrap(self, next_step: ProcessingStep[Any, Any]) -> ProcessingStep[Any, Any]:
+            def wrapped(state: Any, data: Any) -> None:
+                state["value"] = state["step"] + 1
+                if state["step"] == 1:
+                    raise AbortPipeline
+
+            return wrapped
 
     data_loader: Any = [{} for _ in range(3)]
     state: Any = {"acc": []}
 
-    pipeline = Pipeline(middlewares=[AccMiddleware()], sink=sink)
+    pipeline = Pipeline(middlewares=[AccMiddleware(), _Middleware()])
     pipeline.run(state=state, data_loader=data_loader)
 
     assert state["acc"] == [1]
 
 
 def test_middleware_callbacks() -> None:
-    def sink(state: Any, data: Any) -> None:
-        state["value"] = state["step"] + 1
-
     mware = _SimpleMiddleware()
 
     mware.on_start = MagicMock(wraps=mware.on_start)  # type: ignore[method-assign]
@@ -209,7 +225,7 @@ def test_middleware_callbacks() -> None:
     state: Any = {"hello": 1}
     data_loader: Any = [{} for _ in range(3)]
 
-    pipeline = Pipeline(middlewares=[mware], sink=sink)
+    pipeline = Pipeline(middlewares=[mware])
     pipeline.run(state=state, data_loader=data_loader)
 
     # This test is not exactly correct - because the state is mutable, and changes in
