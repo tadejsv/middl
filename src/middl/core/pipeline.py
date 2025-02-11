@@ -9,9 +9,9 @@ components, which receive a shared state and batch (data) as their input.
 from collections.abc import Iterable, Sequence, Sized
 from typing import Any
 
-from .middleware import Middleware, ProcessingStep, StrMapping
+from .middleware import Middleware, StrMapping
 
-__all__ = ["AbortPipeline", "Pipeline", "SkipStep", "ValidationError", "empty_sink"]
+__all__ = ["AbortPipeline", "Pipeline", "SkipStep", "ValidationError"]
 
 
 class SkipStep(Exception):  # noqa: N818
@@ -44,26 +44,25 @@ class Pipeline:
     """
     Runs sequentially a series of middleware components to process data.
 
-    The Pipeline builds a chain of middleware by wrapping a final sink callable with
-    each middleware in reverse order so that they execute in the provided order.
+    The Pipeline builds a chain of middlewares by wrapping each middleware in reverse
+    order (last middleware wraps an empty processing step) so that they execute in
+    the provided order.
     """
 
     def __init__(
         self,
         middlewares: Sequence[Middleware],  # type: ignore[type-arg]
-        sink: ProcessingStep,  # type: ignore[type-arg]
         step_name: str = "step",
     ) -> None:
         """
         Initialize the pipeline.
 
-        The sink callable is wrapped by each middleware component (in reverse order) so
-        that they execute sequentially in the order provided when processing a batch
-        rom the data loader.
+        An empty sink callable is wrapped by each middleware component (in reverse
+        order), so that they execute sequentially in the order provided when
+        processing a batch from the data loader.
 
         Args:
             middlewares: A sequence of middleware components.
-            sink: The final callable that completes processing of the batch.
             step_name: The key used to record the current step index in the
                 state. (Default: "step")
 
@@ -71,7 +70,7 @@ class Pipeline:
         self.middlewares = middlewares
         self.step_name = step_name
 
-        self._run = sink
+        self._run = _empty_sink
         for mware in reversed(self.middlewares):
             self._run = mware.wrap(self._run)
 
@@ -81,11 +80,11 @@ class Pipeline:
         fields.
 
         It follows the flow of data through the pipeline by performing two passes:
-        1. Forward pass (toward the sink): for each middleware in order, it checks that
+        1. Forward pass: for each middleware in order, it checks that
            the state contains the middleware's required fields and that the data
            contains the required pre fields. It then accumulates the pre fields that the
            middleware provides.
-        2. Reverse pass (away from the sink): for each middleware in reverse order,
+        2. Reverse pass: for each middleware in reverse order,
            it verifies that the accumulated batch fields include the middleware's
            required post fields, and then accumulates any post fields that the
            middleware provides.
@@ -142,8 +141,8 @@ class Pipeline:
         The batch is then passed through the middleware chain for processing. The data
         passes through the middlewares sequentially, in the order in which they are
         given in the list. Each middleware "passes" the control on to the next one by
-        calling `next_step` in its wrapped function. After the first pass is complete,
-        the sink function is ran.
+        calling `next_step` in its wrapped function. The final middleware does not need
+        to call next; in case it does, it simply calls an empty processing step.
 
         Then, the flow passes backwards: from the last middleware to the first one, with
         execution in each middleware continuing after the call to `next_step`.
@@ -163,10 +162,6 @@ class Pipeline:
             ▼          ▲
         ┌────────────────┐
         │ Middleware N   │
-        └────────────────┘
-            ▼          ▲
-        ┌────────────────┐
-        │      Sink      │
         └────────────────┘
         ```
 
@@ -218,6 +213,6 @@ class Pipeline:
             mware.on_finish(state)
 
 
-def empty_sink(state: StrMapping, data: StrMapping) -> None:  # noqa: ARG001
+def _empty_sink(state: StrMapping, data: StrMapping) -> None:  # noqa: ARG001
     """An empty processing step (sink)."""
     return

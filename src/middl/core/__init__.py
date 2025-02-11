@@ -4,7 +4,7 @@ concrete middleware subclasses.
 """
 
 from .middleware import Middleware, ProcessingStep, StrMapping
-from .pipeline import AbortPipeline, Pipeline, SkipStep, ValidationError, empty_sink
+from .pipeline import AbortPipeline, Pipeline, SkipStep, ValidationError
 
 __all__ = [
     "AbortPipeline",
@@ -15,5 +15,4 @@ __all__ = [
     "SkipStep",
     "StrMapping",
     "ValidationError",
-    "empty_sink",
 ]

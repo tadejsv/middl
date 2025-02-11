@@ -10,7 +10,6 @@ from .core import (
     SkipStep,
     StrMapping,
     ValidationError,
-    empty_sink,
 )
 
 __all__ = [
@@ -25,7 +24,6 @@ __all__ = [
     "StrMapping",
     "StrMapping",
     "ValidationError",
-    "empty_sink",
 ]
 
 
