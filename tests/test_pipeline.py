@@ -5,6 +5,7 @@ import pytest
 
 from middl import (
     AbortPipeline,
+    EmptyGenerator,
     Middleware,
     Pipeline,
     ProcessingStep,
@@ -236,3 +237,19 @@ def test_middleware_callbacks() -> None:
     mware.on_start.assert_called_once_with(state)
 
     mware.on_finish.assert_called_once_with(state)
+
+
+def test_empty_generator() -> None:
+    length = 3
+    gen = EmptyGenerator(length)
+
+    assert len(gen) == length
+
+    output_1 = list(gen)
+
+    # modify one item to check that new dictionaries are generated
+    output_1[0] = {1: 1}  # type: ignore[dict-item]
+    output_2 = list(gen)
+
+    assert output_1 == [{1: 1}, {}, {}]  # type: ignore[comparison-overlap]
+    assert output_2 == [{}, {}, {}]

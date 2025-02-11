@@ -4,6 +4,7 @@ Composable middleware components for creating machine learning pipelines.
 
 from .core import (
     AbortPipeline,
+    EmptyGenerator,
     Middleware,
     Pipeline,
     ProcessingStep,
@@ -14,6 +15,7 @@ from .core import (
 
 __all__ = [
     "AbortPipeline",
+    "EmptyGenerator",
     "Middleware",
     "Middleware",
     "Pipeline",
