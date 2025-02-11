@@ -6,12 +6,12 @@ batches from a data loader are processed sequentially through a series of middle
 components, which receive a shared state and batch (data) as their input.
 """
 
-from collections.abc import Iterable, Sequence, Sized
+from collections.abc import Iterable, Iterator, Sequence, Sized
 from typing import Any
 
 from .middleware import Middleware, StrMapping
 
-__all__ = ["AbortPipeline", "Pipeline", "SkipStep", "ValidationError"]
+__all__ = ["AbortPipeline", "EmptyGenerator", "Pipeline", "SkipStep", "ValidationError"]
 
 
 class SkipStep(Exception):  # noqa: N818
@@ -211,6 +211,55 @@ class Pipeline:
 
         for mware in self.middlewares:
             mware.on_finish(state)
+
+
+class EmptyGenerator:
+    """
+    A loader that returns empty batces of data.
+
+    Useful for iteatring over epochs.
+
+    Example usage:
+        >>> generator = EmptyGenerator(num_steps=3)
+        >>> for batch in generator:
+        ...     print(batch)
+        {}
+        {}
+        {}
+        >>> print(len(generator))
+        3
+    """
+
+    def __init__(self, num_steps: int) -> None:
+        """
+        Initialize an EmptyGenerator instance.
+
+        Args:
+            num_steps: The number of steps (or batches) to generate.
+
+        """
+        self.num_steps = num_steps
+
+    def __iter__(self) -> Iterator[StrMapping]:
+        """
+        Create an iterator that yields empty dictionaries for each step.
+
+        Yields:
+            An iterator yielding empty dictionaries.
+
+        """
+        for _ in range(self.num_steps):
+            yield {}
+
+    def __len__(self) -> int:
+        """
+        Return the total number of steps.
+
+        Returns:
+            The number of steps.
+
+        """
+        return self.num_steps
 
 
 def _empty_sink(state: StrMapping, data: StrMapping) -> None:  # noqa: ARG001
