@@ -168,7 +168,7 @@ def test_run_no_loader_length() -> None:
 
     pipeline = Pipeline(middlewares=[_Middleware()])
 
-    data_loader: WrappedUnsizedLoader = wrap_iterable(([] for _ in range(3)), set())
+    data_loader: WrappedUnsizedLoader = wrap_iterable(([] for _ in range(3)), ())
     state: Any = {}
 
     pipeline.run(state, data_loader)
