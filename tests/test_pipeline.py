@@ -5,12 +5,15 @@ import pytest
 
 from middl import (
     AbortPipeline,
-    EmptyGenerator,
+    EmptyLoader,
     Middleware,
     Pipeline,
+    PipelineWrapper,
     ProcessingStep,
     SkipStep,
     ValidationError,
+    WrappedUnsizedLoader,
+    wrap_iterable,
 )
 
 
@@ -39,10 +42,9 @@ def test_validate_missing_pre_field() -> None:
 
     with pytest.raises(
         ValidationError,
-        match="Missing data pre fields {'miss'}, required by middleware"
-        " _SimpleMiddleware, at index 0.",
+        match="Validation error by middleware _SimpleMiddleware, at index 0.",
     ):
-        pipe.validate(set(), set())
+        pipe.validate(set(), set(), sized_data_loader=False)
 
 
 def test_validate_missing_post_field() -> None:
@@ -53,10 +55,9 @@ def test_validate_missing_post_field() -> None:
 
     with pytest.raises(
         ValidationError,
-        match="Missing data post fields {'miss'}, required by middleware"
-        " _SimpleMiddleware, at index 0.",
+        match="Validation error by middleware _SimpleMiddleware, at index 0.",
     ):
-        pipe.validate(set(), set())
+        pipe.validate(set(), set(), sized_data_loader=False)
 
 
 def test_validate_missing_state_field() -> None:
@@ -67,10 +68,9 @@ def test_validate_missing_state_field() -> None:
 
     with pytest.raises(
         ValidationError,
-        match="Missing state fields {'miss'}, required by middleware"
-        " _SimpleMiddleware, at index 0.",
+        match="Validation error by middleware _SimpleMiddleware, at index 0.",
     ):
-        pipe.validate(set(), set())
+        pipe.validate(set(), set(), sized_data_loader=False)
 
 
 def test_validate_ok() -> None:
@@ -85,7 +85,22 @@ def test_validate_ok() -> None:
 
     pipe = Pipeline(middlewares=[sm1, sm2])
 
-    pipe.validate({"miss"}, set())
+    pipe.validate({"miss"}, set(), sized_data_loader=False)
+
+
+def test_validate_ok_sized() -> None:
+    sm1 = _SimpleMiddleware()
+    sm1.requires_state_fields = {"miss", "num_steps"}
+    sm1.provides_data_fields_pre = {"val"}
+    sm1.requires_data_fields_post = {"val", "val1"}
+
+    sm2 = _SimpleMiddleware()
+    sm2.requires_data_fields_pre = {"val"}
+    sm2.provides_data_fields_post = {"val1"}
+
+    pipe = Pipeline(middlewares=[sm1, sm2])
+
+    pipe.validate({"miss"}, set(), sized_data_loader=True)
 
 
 def test_run_missing_state_field() -> None:
@@ -96,10 +111,9 @@ def test_run_missing_state_field() -> None:
 
     with pytest.raises(
         ValidationError,
-        match="Missing state fields {'miss'}, required by middleware"
-        " _SimpleMiddleware, at index 0.",
+        match="Validation error by middleware _SimpleMiddleware, at index 0.",
     ):
-        pipe.run({}, [{}, {}, {}])
+        pipe.run({}, EmptyLoader(3))
 
 
 def test_run_missing_data_field() -> None:
@@ -110,10 +124,9 @@ def test_run_missing_data_field() -> None:
 
     with pytest.raises(
         ValidationError,
-        match="Missing data pre fields {'miss'}, required by middleware"
-        " _SimpleMiddleware, at index 0.",
+        match="Validation error by middleware _SimpleMiddleware, at index 0.",
     ):
-        pipe.run({}, [{}, {}, {}])
+        pipe.run({}, EmptyLoader(3))
 
 
 def test_run_missing_data_field_no_validate() -> None:
@@ -126,7 +139,7 @@ def test_run_missing_data_field_no_validate() -> None:
 
     pipe = Pipeline(middlewares=[sm])
 
-    pipe.run({}, [{}, {}, {}], validate=False)
+    pipe.run({}, EmptyLoader(3), validate=False)
 
 
 def test_run_ok() -> None:
@@ -137,11 +150,10 @@ def test_run_ok() -> None:
 
             return wrapped
 
-    data_loader: Any = [{} for _ in range(3)]
     state: Any = {"acc": []}
 
     pipeline = Pipeline(middlewares=[AccMiddleware(), _Middleware()])
-    pipeline.run(state=state, data_loader=data_loader)
+    pipeline.run(state=state, data_loader=EmptyLoader(3))
 
     assert state["acc"] == [1, 2, 3]
 
@@ -156,27 +168,27 @@ def test_run_no_loader_length() -> None:
 
     pipeline = Pipeline(middlewares=[_Middleware()])
 
-    data_loader: Any = ({} for _ in range(3))
+    data_loader: WrappedUnsizedLoader = wrap_iterable(([] for _ in range(3)), set())
     state: Any = {}
 
     pipeline.run(state, data_loader)
 
 
 def test_run_dataloader_length() -> None:
-    data_loader: Any = [{} for _ in range(3)]
+    data_length = 3
 
     class _Middleware(Middleware[Any, Any]):
         def wrap(self, next_step: ProcessingStep[Any, Any]) -> ProcessingStep[Any, Any]:
             def wrapped(state: Any, data: Any) -> None:
                 assert set(state.keys()) == {"epoch", "num_epochs"}
-                assert state["num_epochs"] == len(data_loader)
+                assert state["num_epochs"] == data_length
 
             return wrapped
 
     pipeline = Pipeline(middlewares=[_Middleware()], step_name="epoch")
     state: Any = {}
 
-    pipeline.run(state, data_loader)
+    pipeline.run(state, EmptyLoader(data_length))
 
 
 def test_skip_step() -> None:
@@ -189,11 +201,10 @@ def test_skip_step() -> None:
 
             return wrapped
 
-    data_loader: Any = [{} for _ in range(3)]
     state: Any = {"acc": []}
 
     pipeline = Pipeline(middlewares=[AccMiddleware(), _Middleware()])
-    pipeline.run(state=state, data_loader=data_loader)
+    pipeline.run(state=state, data_loader=EmptyLoader(3))
 
     assert state["acc"] == [1, 3]
 
@@ -208,11 +219,10 @@ def test_abort_pipeline() -> None:
 
             return wrapped
 
-    data_loader: Any = [{} for _ in range(3)]
     state: Any = {"acc": []}
 
     pipeline = Pipeline(middlewares=[AccMiddleware(), _Middleware()])
-    pipeline.run(state=state, data_loader=data_loader)
+    pipeline.run(state=state, data_loader=EmptyLoader(3))
 
     assert state["acc"] == [1]
 
@@ -224,10 +234,9 @@ def test_middleware_callbacks() -> None:
     mware.on_finish = MagicMock(wraps=mware.on_finish)  # type: ignore[method-assign]
 
     state: Any = {"hello": 1}
-    data_loader: Any = [{} for _ in range(3)]
 
     pipeline = Pipeline(middlewares=[mware])
-    pipeline.run(state=state, data_loader=data_loader)
+    pipeline.run(state=state, data_loader=EmptyLoader(3))
 
     # This test is not exactly correct - because the state is mutable, and changes in
     # the course of execution. so the final state will have "step" and "value" keys,
@@ -239,17 +248,18 @@ def test_middleware_callbacks() -> None:
     mware.on_finish.assert_called_once_with(state)
 
 
-def test_empty_generator() -> None:
-    length = 3
-    gen = EmptyGenerator(length)
+def test_pipeline_wrapper_ok() -> None:
+    mware = _SimpleMiddleware()
+    mware.requires_state_fields = {"epoch", "num_epochs", "num_steps", "step"}
 
-    assert len(gen) == length
+    inner_pipeline = Pipeline([mware])
 
-    output_1 = list(gen)
+    pipe_mware = PipelineWrapper(inner_pipeline, EmptyLoader(5))
 
-    # modify one item to check that new dictionaries are generated
-    output_1[0] = {1: 1}  # type: ignore[dict-item]
-    output_2 = list(gen)
+    outer_pipeline = Pipeline([pipe_mware], step_name="epoch")
 
-    assert output_1 == [{1: 1}, {}, {}]  # type: ignore[comparison-overlap]
-    assert output_2 == [{}, {}, {}]
+    state: dict[str, Any] = {}
+    outer_pipeline.run(state, EmptyLoader(3))
+
+    # State after all pipelines/loops have been run
+    assert state == {"epoch": 2, "num_epochs": 3, "num_steps": 5, "step": 4}
