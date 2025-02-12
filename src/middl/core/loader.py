@@ -91,19 +91,24 @@ class WrappedUnsizedLoader:
     a dictionary using the fields specified in `data_fields`.
     """
 
-    def __init__(self, loader: Iterable[Sequence[Any]], data_fields: set[str]) -> None:
+    def __init__(
+        self, loader: Iterable[Sequence[Any]], data_fields: Sequence[str]
+    ) -> None:
         """
         Initialize a WrappedUnsizedLoader.
 
         Args:
             loader: An iterable that yields sequences (e.g., tuples or lists)
                 representing data batches.
-            data_fields: A set of string keys to use in the output dictionaries. The
-                number of keys must match the length of each sequence in the loader.
+            data_fields: A sequence of string keys to use in the output dictionaries.
+                The number of keys must match the length of each sequence in the loader,
+                each item in batch will be assigned the key at the corresponding
+                position.
 
         """
         self._loader = loader
-        self.data_fields = data_fields
+        self.data_fields = set(data_fields)
+        self.data_fields_seq = data_fields
 
     def __iter__(self) -> Iterator[StrMapping]:
         """
@@ -115,7 +120,9 @@ class WrappedUnsizedLoader:
 
         """
         for batch in self._loader:
-            batch_dict: dict[str, Any] = dict(zip(self.data_fields, batch, strict=True))
+            batch_dict: dict[str, Any] = dict(
+                zip(self.data_fields_seq, batch, strict=True)
+            )
             yield batch_dict
 
 
@@ -140,7 +147,7 @@ class WrappedSizedLoader(WrappedUnsizedLoader):
 
 
 def wrap_iterable(
-    loader: Iterable[Sequence[Any]], data_fields: set[str]
+    loader: Iterable[Sequence[Any]], data_fields: Sequence[str]
 ) -> WrappedSizedLoader | WrappedUnsizedLoader:
     """
     Wrap a sequence-yielding iterable, so that it conforms to Loader protocol.
@@ -157,7 +164,8 @@ def wrap_iterable(
             (has length) or not.
         data_fields: Keys for data fields in the dict of the batches of the data loader
             wrapper. The number of keys has to match the number items in a batch of
-            `loader`.
+            `loader`, each item in batch will be assigned the key at the corresponding
+            position.
 
     Returns:
         A wrapped data loader, that yields dictionary batches.
