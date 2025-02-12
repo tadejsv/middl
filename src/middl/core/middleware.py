@@ -9,6 +9,8 @@ from abc import ABC, abstractmethod
 from collections.abc import Mapping
 from typing import Any, Generic, Protocol, TypeVar
 
+from .errors import ValidationError
+
 __all__ = ["Middleware", "ProcessingStep", "StrMapping"]
 
 
@@ -161,3 +163,32 @@ class Middleware(ABC, Generic[StateType_contra, DataType_contra]):
             state: A mapping representing the shared state of the pipeline.
 
         """
+
+    def validate(
+        self, state_fields: set[str], data_fields: set[str], pre: bool = True
+    ) -> None:
+        if not self.requires_state_fields.issubset(state_fields):
+            msg = (
+                "Missing state fields"
+                f" {self.requires_state_fields.difference(state_fields)}"
+            )
+            raise ValidationError(msg)
+
+        if pre:
+            if not self.requires_data_fields_pre.issubset(data_fields):
+                msg = (
+                    "Missing data pre fields"
+                    f" {self.requires_state_fields.difference(state_fields)}"
+                )
+                raise ValidationError(msg)
+
+            data_fields.update(self.provides_data_fields_pre)
+        else:
+            if not self.requires_data_fields_post.issubset(data_fields):
+                msg = (
+                    "Missing data post fields"
+                    f" {self.requires_state_fields.difference(state_fields)}"
+                )
+                raise ValidationError(msg)
+
+            data_fields.update(self.provides_data_fields_post)

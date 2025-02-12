@@ -6,38 +6,14 @@ batches from a data loader are processed sequentially through a series of middle
 components, which receive a shared state and batch (data) as their input.
 """
 
-from collections.abc import Iterable, Iterator, Sequence, Sized
+from collections.abc import Sequence, Sized
 from typing import Any
 
+from .errors import AbortPipeline, SkipStep, ValidationError
+from .loader import Loader
 from .middleware import Middleware, StrMapping
 
-__all__ = ["AbortPipeline", "EmptyGenerator", "Pipeline", "SkipStep", "ValidationError"]
-
-
-class SkipStep(Exception):  # noqa: N818
-    """
-    Exception to skip processing of the current batch.
-
-    When raised by a middleware, the pipeline skips the current step and
-    continues with the next one.
-    """
-
-
-class AbortPipeline(Exception):  # noqa: N818
-    """
-    Exception to abort the entire pipeline execution.
-
-    When raised by a middleware, the pipeline immediately exits.
-    """
-
-
-class ValidationError(Exception):
-    """
-    Exception raised when pipeline validation fails due to missing required fields.
-
-    This exception indicates that the state or the batch from the data loader is missing
-    fields required by one of the middlewares.
-    """
+__all__ = ["Pipeline"]
 
 
 class Pipeline:
@@ -93,42 +69,35 @@ class Pipeline:
             ValidationError: If any required fields are missing.
 
         """
-        data_fields_acc = set(data_fields)
+        # Create copy of fields sets to avoid modifying the original
+        data_fields = set(data_fields)
+        state_fields = set(state_fields)
 
         for i, mware in enumerate(self.middlewares):
-            if not mware.requires_state_fields.issubset(state_fields):
+            try:
+                mware.validate(state_fields, data_fields, pre=True)
+            except ValidationError as e:
                 msg = (
-                    "Missing state fields"
-                    f" {mware.requires_state_fields.difference(state_fields)}, required"
-                    f" by middleware {type(mware).__name__}, at index {i}."
+                    "Validation error by middleware"
+                    f" {type(mware).__name__}, at index {i}."
                 )
-                raise ValidationError(msg)
-            if not mware.requires_data_fields_pre.issubset(data_fields_acc):
-                msg = (
-                    "Missing data pre fields"
-                    f" {mware.requires_data_fields_pre.difference(data_fields_acc)},"
-                    f" required by middleware {type(mware).__name__}, at index {i}."
-                )
-                raise ValidationError(msg)
-
-            data_fields_acc.update(mware.provides_data_fields_pre)
+                raise ValidationError(msg) from e
 
         for i, mware in enumerate(reversed(self.middlewares)):
-            if not mware.requires_data_fields_post.issubset(data_fields_acc):
+            try:
+                mware.validate(state_fields, data_fields, pre=False)
+            except ValidationError as e:
                 ind = len(self.middlewares) - i - 1
                 msg = (
-                    "Missing data post fields"
-                    f" {mware.requires_data_fields_post.difference(data_fields_acc)},"
-                    f" required by middleware {type(mware).__name__}, at index {ind}."
+                    "Validation error by middleware"
+                    f" {type(mware).__name__}, at index {ind}."
                 )
-                raise ValidationError(msg)
-
-            data_fields_acc.update(mware.provides_data_fields_post)
+                raise ValidationError(msg) from e
 
     def run(
         self,
         state: dict[str, Any],
-        data_loader: Iterable[StrMapping],
+        data_loader: Loader,
         validate: bool = True,
     ) -> None:
         """
@@ -195,12 +164,11 @@ class Pipeline:
         if isinstance(data_loader, Sized):
             state[f"num_{self.step_name}s"] = len(data_loader)
 
+        if validate:
+            self.validate(set(state.keys()), data_loader.data_fields)
+
         for step, data in enumerate(data_loader):
             state[self.step_name] = step
-            # Perform validation on first data batch, assuming that all future batches
-            # will also have the same set of keys
-            if step == 0 and validate:
-                self.validate(set(state.keys()), set(data.keys()))
 
             try:
                 self._run(state=state, data=data)
@@ -211,55 +179,6 @@ class Pipeline:
 
         for mware in self.middlewares:
             mware.on_finish(state)
-
-
-class EmptyGenerator:
-    """
-    A loader that returns empty batces of data.
-
-    Useful for iteatring over epochs.
-
-    Example usage:
-        >>> generator = EmptyGenerator(num_steps=3)
-        >>> for batch in generator:
-        ...     print(batch)
-        {}
-        {}
-        {}
-        >>> print(len(generator))
-        3
-    """
-
-    def __init__(self, num_steps: int) -> None:
-        """
-        Initialize an EmptyGenerator instance.
-
-        Args:
-            num_steps: The number of steps (or batches) to generate.
-
-        """
-        self.num_steps = num_steps
-
-    def __iter__(self) -> Iterator[StrMapping]:
-        """
-        Create an iterator that yields empty dictionaries for each step.
-
-        Yields:
-            An iterator yielding empty dictionaries.
-
-        """
-        for _ in range(self.num_steps):
-            yield {}
-
-    def __len__(self) -> int:
-        """
-        Return the total number of steps.
-
-        Returns:
-            The number of steps.
-
-        """
-        return self.num_steps
 
 
 def _empty_sink(state: StrMapping, data: StrMapping) -> None:  # noqa: ARG001
