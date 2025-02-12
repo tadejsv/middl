@@ -6,7 +6,7 @@ the Middleware abstract base class for middleware components.
 """
 
 from abc import ABC, abstractmethod
-from collections.abc import Mapping
+from collections.abc import MutableMapping
 from typing import Any, Generic, Protocol, TypeVar
 
 from .errors import ValidationError
@@ -14,7 +14,7 @@ from .errors import ValidationError
 __all__ = ["Middleware", "ProcessingStep", "StrMapping"]
 
 
-StrMapping = Mapping[str, Any]
+StrMapping = MutableMapping[str, Any]
 StateType_contra = TypeVar("StateType_contra", bound=StrMapping, contravariant=True)
 DataType_contra = TypeVar("DataType_contra", bound=StrMapping, contravariant=True)
 
@@ -164,9 +164,22 @@ class Middleware(ABC, Generic[StateType_contra, DataType_contra]):
 
         """
 
-    def validate(
+    def _validate(
         self, state_fields: set[str], data_fields: set[str], pre: bool = True
     ) -> None:
+        """
+        Validate the fields of the middleware, given input fields.
+
+        This method checks that all the fields required by the middleware are
+        present in the input fields.
+
+        Arguments:
+            state_fields: Fields of the input state mapping.
+            data_fields: Fields of the input data mapping.
+            pre: If `True`, perform the validation for the forward pass (pre),
+                if `False`, perform the validation for the backward pass (post).
+
+        """
         if not self.requires_state_fields.issubset(state_fields):
             msg = (
                 "Missing state fields"
@@ -178,7 +191,7 @@ class Middleware(ABC, Generic[StateType_contra, DataType_contra]):
             if not self.requires_data_fields_pre.issubset(data_fields):
                 msg = (
                     "Missing data pre fields"
-                    f" {self.requires_state_fields.difference(state_fields)}"
+                    f" {self.requires_data_fields_pre.difference(data_fields)}"
                 )
                 raise ValidationError(msg)
 
@@ -187,7 +200,7 @@ class Middleware(ABC, Generic[StateType_contra, DataType_contra]):
             if not self.requires_data_fields_post.issubset(data_fields):
                 msg = (
                     "Missing data post fields"
-                    f" {self.requires_state_fields.difference(state_fields)}"
+                    f" {self.requires_data_fields_post.difference(data_fields)}"
                 )
                 raise ValidationError(msg)
 

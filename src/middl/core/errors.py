@@ -1,3 +1,5 @@
+"""Module defining middl-specific errors."""
+
 __all__ = ["AbortPipeline", "SkipStep", "ValidationError"]
 
 

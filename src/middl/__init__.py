@@ -4,29 +4,35 @@ Composable middleware components for creating machine learning pipelines.
 
 from .core import (
     AbortPipeline,
-    EmptyGenerator,
+    EmptyLoader,
+    Loader,
     Middleware,
     Pipeline,
+    PipelineWrapper,
     ProcessingStep,
     SkipStep,
     StrMapping,
     ValidationError,
+    WrappedSizedLoader,
+    WrappedUnsizedLoader,
+    wrap_iterable,
 )
 
 __all__ = [
     "AbortPipeline",
-    "EmptyGenerator",
-    "Middleware",
+    "EmptyLoader",
+    "Loader",
     "Middleware",
     "Pipeline",
-    "Pipeline",
-    "ProcessingStep",
+    "PipelineWrapper",
     "ProcessingStep",
     "SkipStep",
     "StrMapping",
-    "StrMapping",
     "ValidationError",
+    "WrappedSizedLoader",
+    "WrappedUnsizedLoader",
+    "wrap_iterable",
 ]
 
 
-__version__ = "0.0.1a5"
+__version__ = "0.0.1a6"
