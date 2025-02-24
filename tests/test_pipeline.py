@@ -9,7 +9,6 @@ from middl import (
     Middleware,
     Pipeline,
     PipelineWrapper,
-    ProcessingStep,
     SkipStep,
     ValidationError,
     WrappedUnsizedLoader,
@@ -18,38 +17,17 @@ from middl import (
 
 
 class AccMiddleware(Middleware[Any, Any]):
-    def wrap(self, next_step: ProcessingStep[Any, Any]) -> ProcessingStep[Any, Any]:
-        def wrapped(state: Any, data: Any) -> None:
-            next_step(state, data)
-            state["acc"].append(state["value"])
-
-        return wrapped
+    def step(self, state: Any, data: Any) -> None:
+        state["acc"].append(state["value"])
 
 
 class _SimpleMiddleware(Middleware[Any, Any]):
-    def wrap(self, next_step: ProcessingStep[Any, Any]) -> ProcessingStep[Any, Any]:
-        def wrapped(state: Any, data: Any) -> None:
-            return next_step(state, data)
-
-        return wrapped
+    pass
 
 
-def test_validate_missing_pre_field() -> None:
+def test_validate_missing_field() -> None:
     sm = _SimpleMiddleware()
-    sm.requires_data_fields_pre = {"miss"}
-
-    pipe = Pipeline(middlewares=[sm])
-
-    with pytest.raises(
-        ValidationError,
-        match="Validation error by middleware _SimpleMiddleware, at index 0.",
-    ):
-        pipe.validate(set(), set(), sized_data_loader=False)
-
-
-def test_validate_missing_post_field() -> None:
-    sm = _SimpleMiddleware()
-    sm.requires_data_fields_post = {"miss"}
+    sm.requires_data_fields = {"miss"}
 
     pipe = Pipeline(middlewares=[sm])
 
@@ -76,12 +54,10 @@ def test_validate_missing_state_field() -> None:
 def test_validate_ok() -> None:
     sm1 = _SimpleMiddleware()
     sm1.requires_state_fields = {"miss"}
-    sm1.provides_data_fields_pre = {"val"}
-    sm1.requires_data_fields_post = {"val", "val1"}
+    sm1.provides_data_fields = {"val"}
 
     sm2 = _SimpleMiddleware()
-    sm2.requires_data_fields_pre = {"val"}
-    sm2.provides_data_fields_post = {"val1"}
+    sm2.requires_data_fields = {"val"}
 
     pipe = Pipeline(middlewares=[sm1, sm2])
 
@@ -91,12 +67,11 @@ def test_validate_ok() -> None:
 def test_validate_ok_sized() -> None:
     sm1 = _SimpleMiddleware()
     sm1.requires_state_fields = {"miss", "num_steps"}
-    sm1.provides_data_fields_pre = {"val"}
-    sm1.requires_data_fields_post = {"val", "val1"}
+    sm1.provides_data_fields = {"val"}
 
     sm2 = _SimpleMiddleware()
-    sm2.requires_data_fields_pre = {"val"}
-    sm2.provides_data_fields_post = {"val1"}
+    sm2.requires_data_fields = {"val"}
+    sm2.requires_state_fields = {"step"}
 
     pipe = Pipeline(middlewares=[sm1, sm2])
 
@@ -118,7 +93,7 @@ def test_run_missing_state_field() -> None:
 
 def test_run_missing_data_field() -> None:
     sm = _SimpleMiddleware()
-    sm.requires_data_fields_pre = {"miss"}
+    sm.requires_data_fields = {"miss"}
 
     pipe = Pipeline(middlewares=[sm])
 
@@ -135,7 +110,7 @@ def test_run_missing_data_field_no_validate() -> None:
     missing data field.
     """
     sm = _SimpleMiddleware()
-    sm.requires_data_fields_pre = {"miss"}
+    sm.requires_data_fields = {"miss"}
 
     pipe = Pipeline(middlewares=[sm])
 
@@ -143,30 +118,28 @@ def test_run_missing_data_field_no_validate() -> None:
 
 
 def test_run_ok() -> None:
-    class _Middleware(Middleware[Any, Any]):
-        def wrap(self, next_step: ProcessingStep[Any, Any]) -> ProcessingStep[Any, Any]:
-            def wrapped(state: Any, data: Any) -> None:
-                state["value"] = state["step"] + 1
+    class MyMiddleware(Middleware[Any, Any]):
+        def __init__(self) -> None:
+            super().__init__()
+            self.requires_state_fields = {"step"}
 
-            return wrapped
+        def step(self, state: Any, data: Any) -> None:
+            state["value"] = state["step"] + 1
 
-    state: Any = {"acc": []}
+    state: Any = {"acc": [], "value": 0}
 
-    pipeline = Pipeline(middlewares=[AccMiddleware(), _Middleware()])
+    pipeline = Pipeline(middlewares=[MyMiddleware(), AccMiddleware()])
     pipeline.run(state=state, data_loader=EmptyLoader(3))
 
     assert state["acc"] == [1, 2, 3]
 
 
 def test_run_no_loader_length() -> None:
-    class _Middleware(Middleware[Any, Any]):
-        def wrap(self, next_step: ProcessingStep[Any, Any]) -> ProcessingStep[Any, Any]:
-            def wrapped(state: Any, data: Any) -> None:
-                assert set(state.keys()) == {"step"}
+    class MyMiddleware(Middleware[Any, Any]):
+        def step(self, state: Any, data: Any) -> None:
+            assert set(state.keys()) == {"step"}
 
-            return wrapped
-
-    pipeline = Pipeline(middlewares=[_Middleware()])
+    pipeline = Pipeline(middlewares=[MyMiddleware()])
 
     data_loader: WrappedUnsizedLoader = wrap_iterable(([] for _ in range(3)), ())
     state: Any = {}
@@ -177,51 +150,42 @@ def test_run_no_loader_length() -> None:
 def test_run_dataloader_length() -> None:
     data_length = 3
 
-    class _Middleware(Middleware[Any, Any]):
-        def wrap(self, next_step: ProcessingStep[Any, Any]) -> ProcessingStep[Any, Any]:
-            def wrapped(state: Any, data: Any) -> None:
-                assert set(state.keys()) == {"epoch", "num_epochs"}
-                assert state["num_epochs"] == data_length
+    class MyMiddleware(Middleware[Any, Any]):
+        def wrapped(self, state: Any, data: Any) -> None:
+            assert set(state.keys()) == {"epoch", "num_epochs"}
+            assert state["num_epochs"] == data_length
 
-            return wrapped
-
-    pipeline = Pipeline(middlewares=[_Middleware()], step_name="epoch")
+    pipeline = Pipeline(middlewares=[MyMiddleware()], step_name="epoch")
     state: Any = {}
 
     pipeline.run(state, EmptyLoader(data_length))
 
 
 def test_skip_step() -> None:
-    class _Middleware(Middleware[Any, Any]):
-        def wrap(self, next_step: ProcessingStep[Any, Any]) -> ProcessingStep[Any, Any]:
-            def wrapped(state: Any, data: Any) -> None:
-                state["value"] = state["step"] + 1
-                if state["step"] == 1:
-                    raise SkipStep
-
-            return wrapped
+    class MyMiddleware(Middleware[Any, Any]):
+        def step(self, state: Any, data: Any) -> None:
+            state["value"] = state["step"] + 1
+            if state["step"] == 1:
+                raise SkipStep
 
     state: Any = {"acc": []}
 
-    pipeline = Pipeline(middlewares=[AccMiddleware(), _Middleware()])
+    pipeline = Pipeline(middlewares=[MyMiddleware(), AccMiddleware()])
     pipeline.run(state=state, data_loader=EmptyLoader(3))
 
     assert state["acc"] == [1, 3]
 
 
 def test_abort_pipeline() -> None:
-    class _Middleware(Middleware[Any, Any]):
-        def wrap(self, next_step: ProcessingStep[Any, Any]) -> ProcessingStep[Any, Any]:
-            def wrapped(state: Any, data: Any) -> None:
-                state["value"] = state["step"] + 1
-                if state["step"] == 1:
-                    raise AbortPipeline
-
-            return wrapped
+    class MyMiddleware(Middleware[Any, Any]):
+        def step(self, state: Any, data: Any) -> None:
+            state["value"] = state["step"] + 1
+            if state["step"] == 1:
+                raise AbortPipeline
 
     state: Any = {"acc": []}
 
-    pipeline = Pipeline(middlewares=[AccMiddleware(), _Middleware()])
+    pipeline = Pipeline(middlewares=[MyMiddleware(), AccMiddleware()])
     pipeline.run(state=state, data_loader=EmptyLoader(3))
 
     assert state["acc"] == [1]
