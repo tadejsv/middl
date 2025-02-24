@@ -9,7 +9,6 @@ from .core import (
     Middleware,
     Pipeline,
     PipelineWrapper,
-    ProcessingStep,
     SkipStep,
     StrMapping,
     ValidationError,
@@ -25,7 +24,6 @@ __all__ = [
     "Middleware",
     "Pipeline",
     "PipelineWrapper",
-    "ProcessingStep",
     "SkipStep",
     "StrMapping",
     "ValidationError",
@@ -35,4 +33,4 @@ __all__ = [
 ]
 
 
-__version__ = "0.0.1a7"
+__version__ = "0.0.1a8"

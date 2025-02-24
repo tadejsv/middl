@@ -11,7 +11,7 @@ from .loader import (
     WrappedUnsizedLoader,
     wrap_iterable,
 )
-from .middleware import Middleware, ProcessingStep, StrMapping
+from .middleware import Middleware, StrMapping
 from .pipeline import Pipeline, PipelineWrapper
 
 __all__ = [
@@ -21,7 +21,6 @@ __all__ = [
     "Middleware",
     "Pipeline",
     "PipelineWrapper",
-    "ProcessingStep",
     "SkipStep",
     "StrMapping",
     "ValidationError",

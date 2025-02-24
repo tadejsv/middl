@@ -1,35 +1,21 @@
 """
 Module defining middleware protocols and base classes.
 
-This module provides the ProcessingStep protocol for the processing step and
-the Middleware abstract base class for middleware components.
+This module provides the Middleware abstract base class for middleware components.
 """
 
-from abc import ABC, abstractmethod
+from abc import ABC
 from collections.abc import MutableMapping
-from typing import Any, Generic, Protocol, TypeVar
+from typing import Any, Generic, TypeVar
 
 from .errors import ValidationError
 
-__all__ = ["Middleware", "ProcessingStep", "StrMapping"]
+__all__ = ["Middleware", "StrMapping"]
 
 
 StrMapping = MutableMapping[str, Any]
 StateType_contra = TypeVar("StateType_contra", bound=StrMapping, contravariant=True)
 DataType_contra = TypeVar("DataType_contra", bound=StrMapping, contravariant=True)
-
-
-class ProcessingStep(Protocol[StateType_contra, DataType_contra]):
-    """
-    Protocol for a (callable) processing step of the pipeline.
-
-    Needs to be a callable that accepts a shared state and a data batch,
-    both as dictionaries (mappings) with string keys. Implementations should
-    use concrete types for the state and data to leverage static type checking.
-    """
-
-    def __call__(self, state: StateType_contra, data: DataType_contra) -> None:
-        """Perform the processing step."""
 
 
 class Middleware(ABC, Generic[StateType_contra, DataType_contra]):
@@ -41,17 +27,15 @@ class Middleware(ABC, Generic[StateType_contra, DataType_contra]):
     as concrete TypedDict types) to benefit from IDE autocompletion and static type
     checking.
 
-    Concrete implementations need to override the `wrap` method. Optionally, they
+    Concrete implementations should usually override the `step` method. Optionally, they
     can also override `on_start` and `on_finish` callbacks, in case there is some
     initialization/teardown that needs to be done at the start and at the end of
     pipeline execution.
 
     Attributes:
-        requires_state_fields: The state fields required by this middleware.
-        requires_data_fields_pre: The data fields required before processing.
-        provides_data_fields_pre: The data fields provided after pre-processing.
-        requires_data_fields_post: The data fields required after processing.
-        provides_data_fields_post: The data fields provided after post-processing.
+        requires_state_fields: The state fields required.
+        requires_data_fields: The data fields required.
+        provides_data_fields: The data fields provided.
 
     Example:
     ```python
@@ -69,72 +53,39 @@ class Middleware(ABC, Generic[StateType_contra, DataType_contra]):
             def __init__(self) -> None:
                 super().__init__()
                 self.requires_state_fields = {"step"}
-                self.requires_data_fields_post = {"loss"}
-                self.provides_data_fields_pre = {"value"}
+                self.requires_data_fields = {"loss"}
+                self.provides_data_fields = {"value"}
 
-            def wrap(
-                self, next_step: ProcessingStep[StrMapping, StrMapping],
-            ) -> ProcessingStep[MyState, MyData]:
-                def wrapped(state: MyState, data: MyData) -> None:
-                    print(f"Step: {state['step']}")
-                    data["value"] = 1
-                    next_step(state, data)
-                    print(f"Loss: {data['loss']}")
-                return wrapped
+            def step(self, state: MyState, data: MyData) -> None:
+                print(f"Step: {state['step']}")
+                print(f"Loss: {data['loss']}")
+                data["value"] = 1
     ```
 
     """
 
     requires_state_fields: set[str]
 
-    requires_data_fields_pre: set[str]
-    provides_data_fields_pre: set[str]
-    requires_data_fields_post: set[str]
-    provides_data_fields_post: set[str]
+    requires_data_fields: set[str]
+    provides_data_fields: set[str]
 
     def __init__(self) -> None:
         """
         Initialize the middleware with empty sets for required and provided fields.
         """
         self.requires_state_fields = set()
+        self.requires_data_fields = set()
+        self.provides_data_fields = set()
 
-        self.requires_data_fields_pre = set()
-        self.provides_data_fields_pre = set()
-        self.requires_data_fields_post = set()
-        self.provides_data_fields_post = set()
-
-    @abstractmethod
-    def wrap(
-        self,
-        next_step: ProcessingStep[StrMapping, StrMapping],
-    ) -> ProcessingStep[StateType_contra, DataType_contra]:
+    def step(self, state: StateType_contra, data: DataType_contra) -> None:
         """
-        Wrap the next processing step in the middleware chain with this
-        middleware's processing logic.
-
-        Concrete implementations should return a callable that applies
-        this middleware's behavior before and/or after invoking the next callable.
+        Run the middleware processing step.
 
         Args:
-            next_step: The next callable in the processing chain. This callable accepts
-                a state and data and returns None.
-
-        Returns:
-            A callable that wraps the next_step with this middleware's behavior.
-
-        Example:
-            A simple middleware implementation that prints messages before and after
-            invoking the next step:
-
-                def wrap(self, next_step):
-                    def wrapped(state, data):
-                        print("Before calling next step")
-                        next_step(state, data)
-                        print("After calling next step")
-                    return wrapped
+            state: A dictionary representing the shared pipeline state.
+            data: A dictionary representing step data (batch).
 
         """
-        raise NotImplementedError
 
     def on_start(self, state: StateType_contra) -> None:
         """
@@ -164,9 +115,7 @@ class Middleware(ABC, Generic[StateType_contra, DataType_contra]):
 
         """
 
-    def _validate(
-        self, state_fields: set[str], data_fields: set[str], pre: bool = True
-    ) -> None:
+    def _validate(self, state_fields: set[str], data_fields: set[str]) -> None:
         """
         Validate the fields of the middleware, given input fields.
 
@@ -176,8 +125,6 @@ class Middleware(ABC, Generic[StateType_contra, DataType_contra]):
         Arguments:
             state_fields: Fields of the input state mapping.
             data_fields: Fields of the input data mapping.
-            pre: If `True`, perform the validation for the forward pass (pre),
-                if `False`, perform the validation for the backward pass (post).
 
         """
         if not self.requires_state_fields.issubset(state_fields):
@@ -187,21 +134,11 @@ class Middleware(ABC, Generic[StateType_contra, DataType_contra]):
             )
             raise ValidationError(msg)
 
-        if pre:
-            if not self.requires_data_fields_pre.issubset(data_fields):
-                msg = (
-                    "Missing data pre fields"
-                    f" {self.requires_data_fields_pre.difference(data_fields)}"
-                )
-                raise ValidationError(msg)
+        if not self.requires_data_fields.issubset(data_fields):
+            msg = (
+                "Missing data fields"
+                f" {self.requires_data_fields.difference(data_fields)}"
+            )
+            raise ValidationError(msg)
 
-            data_fields.update(self.provides_data_fields_pre)
-        else:
-            if not self.requires_data_fields_post.issubset(data_fields):
-                msg = (
-                    "Missing data post fields"
-                    f" {self.requires_data_fields_post.difference(data_fields)}"
-                )
-                raise ValidationError(msg)
-
-            data_fields.update(self.provides_data_fields_post)
+        data_fields.update(self.provides_data_fields)
